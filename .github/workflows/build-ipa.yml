@@ -92,7 +92,7 @@ jobs:
           test -d "$app"
           executable="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$app/Info.plist")"
           test -x "$app/$executable"
-          lipo -verify_arch arm64 "$app/$executable"
+          lipo "$app/$executable" -verify_arch arm64
           mkdir -p "$RUNNER_TEMP/package/Payload" dist
           cp -R "$app" "$RUNNER_TEMP/package/Payload/"
           output="$GITHUB_WORKSPACE/dist/Open-Relay-${UPSTREAM_VERSION}-unsigned.ipa"
