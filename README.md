@@ -69,13 +69,15 @@ updates the source used by the build.
 ## Build patches
 
 Files in [`patches/`](patches) are applied to the upstream checkout before
-building. They only work around build failures and do not change app behavior:
+building. They only work around build failures and do not change app behavior.
+Each one fixes a "the compiler is unable to type-check this expression in
+reasonable time" error that occurs in Release builds on every Xcode available
+on GitHub's macOS 26 runners (26.4.1 to 26.6):
 
-- `0001-watch-orbview-typecheck.patch`: the Watch companion's `OrbView.swift`
-  fails with "the compiler is unable to type-check this expression in
-  reasonable time" on every Xcode available on GitHub's macOS 26 runners
-  (26.4.1 to 26.6). The patch splits one ternary into two statements, which
-  give the same result.
+- `0001-watch-orbview-typecheck.patch`: the Watch companion's `OrbView.swift`.
+  Splits one ternary into two statements, which give the same result.
+- `0002-knowledge-editor-typecheck.patch`: `KnowledgeEditorView.swift`. Moves
+  the folder picker's `onPick` closure body, unchanged, into a private method.
 
 If upstream already contains a patch's change, the build skips that patch and
 prints a notice. If a patch no longer applies, the build fails. Update or

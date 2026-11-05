@@ -1,0 +1,50 @@
+diff --git a/Open UI/Features/Workspace/Views/KnowledgeEditorView.swift b/Open UI/Features/Workspace/Views/KnowledgeEditorView.swift
+index b54ccb3..f3df568 100644
+--- a/Open UI/Features/Workspace/Views/KnowledgeEditorView.swift	
++++ b/Open UI/Features/Workspace/Views/KnowledgeEditorView.swift	
+@@ -167,20 +167,7 @@ struct KnowledgeEditorView: View {
+             .background(theme.background)
+             .sheet(isPresented: $showFolderPicker) {
+                 FolderPicker(
+-                    onPick: { url in
+-                        showFolderPicker = false
+-                        if folderMode == .sync {
+-                            // Count on a background task: large folders take a moment.
+-                            Task.detached {
+-                                let accessed = url.startAccessingSecurityScopedResource()
+-                                let n = KnowledgeManifest.count(root: url)
+-                                if accessed { url.stopAccessingSecurityScopedResource() }
+-                                await MainActor.run { pendingSyncCount = n; pendingSyncURL = url }
+-                            }
+-                        } else {
+-                            Task { await uploadFolderRun(from: url) }
+-                        }
+-                    },
++                    onPick: { url in handleFolderPick(url) },
+                     onCancel: { showFolderPicker = false }
+                 )
+                 .ignoresSafeArea()
+@@ -930,6 +917,23 @@ struct KnowledgeEditorView: View {
+         }
+     }
+ 
++    // MARK: - Folder Picker
++
++    private func handleFolderPick(_ url: URL) {
++        showFolderPicker = false
++        if folderMode == .sync {
++            // Count on a background task: large folders take a moment.
++            Task.detached {
++                let accessed = url.startAccessingSecurityScopedResource()
++                let n = KnowledgeManifest.count(root: url)
++                if accessed { url.stopAccessingSecurityScopedResource() }
++                await MainActor.run { pendingSyncCount = n; pendingSyncURL = url }
++            }
++        } else {
++            Task { await uploadFolderRun(from: url) }
++        }
++    }
++
+     // MARK: - Access Control Actions
+ 
+     private func handleAccessModeChange(isPrivate: Bool) async {
