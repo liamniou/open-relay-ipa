@@ -64,13 +64,29 @@ git push
 ```
 
 Changing the submodule's Git commit, not editing a separate version variable,
-updates the source used by the build. No upstream source patches are applied.
+updates the source used by the build.
+
+## Build patches
+
+Files in [`patches/`](patches) are applied to the upstream checkout before
+building. They only work around build failures and do not change app behavior:
+
+- `0001-watch-orbview-typecheck.patch`: the Watch companion's `OrbView.swift`
+  fails with "the compiler is unable to type-check this expression in
+  reasonable time" on every Xcode available on GitHub's macOS 26 runners
+  (26.4.1 to 26.6). The patch splits one ternary into two statements, which
+  give the same result.
+
+If upstream already contains a patch's change, the build skips that patch and
+prints a notice. If a patch no longer applies, the build fails. Update or
+delete the patch, then rerun the build.
 
 ## Source and licensing
 
 Open Relay remains under its [upstream GPL license](upstream/LICENSE).
 Each IPA release includes a source archive of the exact upstream commit,
-including its Swift package lockfile, together with the original license.
+including its Swift package lockfile, the build patch applied on top of it
+(`Open-Relay-*-build.patch`), and the original license.
 GitHub's automatically generated source archives of **this pipeline repository**
 do not include Git submodule contents; use the attached `Open-Relay-*-source.tar.gz`
 for the application's corresponding source. Build commands are in

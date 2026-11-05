@@ -1,0 +1,14 @@
+diff --git a/OpenRelayWatch/Views/OrbView.swift b/OpenRelayWatch/Views/OrbView.swift
+index fdddcc5..368254d 100644
+--- a/OpenRelayWatch/Views/OrbView.swift
++++ b/OpenRelayWatch/Views/OrbView.swift
+@@ -44,7 +44,8 @@ struct OrbView: View {
+         }
+         .onChange(of: level) { _, new in
+             // Fast rise, slower fall.
+-            smoothed = new > smoothed ? smoothed * 0.4 + new * 0.6 : smoothed * 0.8 + new * 0.2
++            let weight: Double = new > smoothed ? 0.6 : 0.2
++            smoothed = smoothed * (1 - weight) + new * weight
+         }
+         .animation(.easeOut(duration: 0.12), value: smoothed)
+         .animation(.easeInOut(duration: 0.3), value: mode)

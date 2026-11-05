@@ -43,6 +43,24 @@ jobs:
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Apply build patches to upstream
+        run: |
+          : > "$RUNNER_TEMP/applied.patch"
+          shopt -s nullglob
+          for patch in "$GITHUB_WORKSPACE"/patches/*.patch; do
+            name="$(basename "$patch")"
+            if git -C upstream apply --check "$patch" 2>/dev/null; then
+              git -C upstream apply "$patch"
+              cat "$patch" >> "$RUNNER_TEMP/applied.patch"
+              echo "Applied $name"
+            elif git -C upstream apply --reverse --check "$patch" 2>/dev/null; then
+              echo "::notice::$name is already included upstream; skipping it. Consider deleting it."
+            else
+              echo "::error::$name no longer applies to this upstream version. Update or delete it."
+              exit 1
+            fi
+          done
+
       - name: Select latest installed stable Xcode
         uses: maxim-lobanov/setup-xcode@ed7a3b1fda3918c0306d1b724322adc0b8cc0a90 # v1.7.0
         with:
@@ -83,6 +101,9 @@ jobs:
           git -C upstream archive --format=tar.gz --prefix=Open-Relay/ HEAD \
             > "dist/Open-Relay-${UPSTREAM_VERSION}-source.tar.gz"
           cp upstream/LICENSE dist/LICENSE.txt
+          if [[ -s "$RUNNER_TEMP/applied.patch" ]]; then
+            cp "$RUNNER_TEMP/applied.patch" "dist/Open-Relay-${UPSTREAM_VERSION}-build.patch"
+          fi
           {
             echo "Upstream: https://github.com/Ichigo3766/Open-Relay"
             echo "Upstream version: $UPSTREAM_VERSION"
@@ -148,7 +169,7 @@ jobs:
 
           Requires **iOS/iPadOS 18.1 or later** for this upstream version. A free Apple ID normally requires refreshing the app every seven days; app extensions consume additional App IDs.
 
-          Corresponding upstream source, license, checksums, and build provenance are attached. Pipeline/build instructions: https://github.com/${GH_REPO}/tree/${PIPELINE_SHA}
+          Corresponding upstream source, any build patch applied on top of it, license, checksums, and build provenance are attached. Pipeline/build instructions: https://github.com/${GH_REPO}/tree/${PIPELINE_SHA}
           EOF
           gh release create "$tag" dist/* \
             --target "$PIPELINE_SHA" \
