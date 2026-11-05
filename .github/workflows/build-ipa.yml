@@ -95,6 +95,18 @@ jobs:
           lipo "$app/$executable" -verify_arch arm64
           mkdir -p "$RUNNER_TEMP/package/Payload" dist
           cp -R "$app" "$RUNNER_TEMP/package/Payload/"
+          # AltStore's signer (ldid) crashes on arm64_32 watchOS binaries, and
+          # AltStore does not provision or re-identify embedded Watch apps.
+          rm -rf "$RUNNER_TEMP/package/Payload/Open UI.app/Watch"
+          while IFS= read -r -d '' file; do
+            archs="$(lipo -archs "$file" 2>/dev/null)" || continue
+            for arch in $archs; do
+              if [[ "$arch" != arm64 && "$arch" != arm64e ]]; then
+                echo "::error::${file#"$RUNNER_TEMP/package/"} contains '$arch'; AltStore can only sign arm64/arm64e binaries."
+                exit 1
+              fi
+            done
+          done < <(find "$RUNNER_TEMP/package/Payload" -type f -print0)
           output="$GITHUB_WORKSPACE/dist/Open-Relay-${UPSTREAM_VERSION}-unsigned.ipa"
           (cd "$RUNNER_TEMP/package" && zip -qry "$output" Payload)
           unzip -tq "$output"

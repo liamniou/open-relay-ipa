@@ -13,11 +13,13 @@ This is an unofficial build pipeline, not the upstream project.
 The initial upstream version requires **iOS/iPadOS 18.1 or later**. AltStore
 Classic must already be installed using AltServer; AltStore PAL does not import
 arbitrary IPAs. With a free Apple ID, refresh the app at least every seven days.
-Apple's active-app and App-ID limits still apply. The upstream app includes
-widgets, a share extension, and a Watch companion; extensions consume additional
-App IDs. AltStore may offer to remove extensions. Watch installation and
-capabilities requiring paid/special entitlements are not guaranteed when
-sideloading. This repository does not bypass Apple's signing restrictions.
+Apple's active-app and App-ID limits still apply. The IPA includes the app's
+widgets and share extension, which consume additional App IDs; AltStore may
+offer to remove them. Upstream's Apple Watch companion app is removed from the
+IPA: AltStore's signer crashes on its `arm64_32` binaries, and AltStore does
+not provision or re-identify embedded Watch apps. Capabilities requiring paid/special
+entitlements are not guaranteed when sideloading. This repository does not
+bypass Apple's signing restrictions.
 
 ## Builds and downloads
 
