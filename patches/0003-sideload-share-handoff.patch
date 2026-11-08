@@ -1,0 +1,489 @@
+diff --git a/Open UI.xcodeproj/project.pbxproj b/Open UI.xcodeproj/project.pbxproj
+index 7c610f4..dc4155d 100644
+--- a/Open UI.xcodeproj/project.pbxproj	
++++ b/Open UI.xcodeproj/project.pbxproj	
+@@ -153,12 +153,20 @@
+ 		38VCLA012F00000000000001 /* Exceptions for "Open UI" folder in "OpenUIWidgetsExtension" target */ = {
+ 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+ 			membershipExceptions = (
++				Shared/AppGroup.swift,
+ 				Core/Models/DictationActivityAttributes.swift,
+ 				Features/VoiceCall/LiveActivity/VoiceCallActivityAttributes.swift,
+ 				Shared/Widgets/ControlCenterIntents.swift,
+ 			);
+ 			target = 3852C70B2F71110800283682 /* OpenUIWidgetsExtension */;
+ 		};
++		38SHARE0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenUIShareExtension" target */ = {
++			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
++			membershipExceptions = (
++				Shared/AppGroup.swift,
++			);
++			target = 38SHARE042F00000000000004 /* OpenUIShareExtension */;
++		};
+ 		38WATCH052F00000000000005 /* Exceptions for "OpenRelayWatch" folder in "OpenRelayWatch" target */ = {
+ 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+ 			membershipExceptions = (
+@@ -169,6 +177,7 @@
+ 		38WATCH0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenRelayWatch" target */ = {
+ 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+ 			membershipExceptions = (
++				Shared/AppGroup.swift,
+ 				Shared/Watch/WatchModels.swift,
+ 				Shared/Watch/WatchProtocol.swift,
+ 				Shared/Watch/WidgetState.swift,
+@@ -185,6 +194,7 @@
+ 		38WWID0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenRelayWatchWidgets" target */ = {
+ 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+ 			membershipExceptions = (
++				Shared/AppGroup.swift,
+ 				Shared/Watch/WatchProtocol.swift,
+ 				Shared/Watch/WidgetState.swift,
+ 			);
+@@ -206,6 +216,7 @@
+ 			exceptions = (
+ 				38EB66802F39CE5B00AED774 /* Exceptions for "Open UI" folder in "Open UI" target */,
+ 				38VCLA012F00000000000001 /* Exceptions for "Open UI" folder in "OpenUIWidgetsExtension" target */,
++				38SHARE0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenUIShareExtension" target */,
+ 				38WATCH0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenRelayWatch" target */,
+ 				38WWID0F2F0000000000000F /* Exceptions for "Open UI" folder in "OpenRelayWatchWidgets" target */,
+ 			);
+diff --git a/Open UI/App/Open_UIApp.swift b/Open UI/App/Open_UIApp.swift
+index 8f131a0..bbfb6f3 100644
+--- a/Open UI/App/Open_UIApp.swift	
++++ b/Open UI/App/Open_UIApp.swift	
+@@ -557,64 +557,13 @@ struct Open_UIApp: App {
+         }
+     }
+ 
+-    /// Reads SharedContent written by the Share Extension, converts it to
+-    /// chat attachments / input text, and opens a new chat.
++    /// Asks the visible chat shell to import the Share Extension's pending content.
+     private func handleSharedContent() {
+-        guard let content = dependencies.processPendingSharedContent() else { return }
+-
+-        var attachments: [ChatAttachment] = []
+-        var inputText: String = ""
+-
+-        // --- Files / images (images go through the same pipeline as the in-app pickers) ---
+-        for sharedFile in content.fileAttachments {
+-            if FileAttachmentService.isImageFile(name: sharedFile.name, mimeType: sharedFile.mimeType),
+-               let image = FileAttachmentService.makeImageAttachment(data: sharedFile.data, name: sharedFile.name) {
+-                attachments.append(image)
+-            } else {
+-                attachments.append(ChatAttachment(type: .file, name: sharedFile.name,
+-                                                  thumbnail: nil, data: sharedFile.data))
+-            }
+-        }
+-
+-        // --- Legacy image data (older extension builds) ---
+-        for imageData in content.imageData {
+-            if let image = FileAttachmentService.makeImageAttachment(data: imageData, name: "image") {
+-                attachments.append(image)
+-            }
+-        }
+-
+-        // --- URLs → web-scraping pipeline (scrape + upload, not plain text) ---
+-        // processWebURL() is called in ChatDetailView via applyShareExtensionHandlers
+-        // once the new chat is open and the view model is ready.
+-        let urlStrings = content.urls
+-        if !urlStrings.isEmpty {
+-            dependencies.pendingIncomingWebURLs = urlStrings
+-            dependencies.pendingIncomingWebURLsVersion += 1
+-        }
+-
+-        // --- Plain text ---
+-        if let text = content.text, !text.isEmpty {
+-            inputText = text
+-        }
+-
+-        // If we have attachments, inject the first one as pendingIncomingFile and
+-        // store the rest in pendingIncomingExtraAttachments. Then open a new chat.
+-        if let first = attachments.first {
+-            dependencies.pendingIncomingFile = first
+-            // Store any additional attachments (multi-file share)
+-            if attachments.count > 1 {
+-                dependencies.pendingIncomingExtraAttachments = Array(attachments.dropFirst())
+-            }
+-            dependencies.pendingIncomingFileVersion += 1
+-        }
+-
+-        if !inputText.isEmpty {
+-            dependencies.pendingIncomingText = inputText
+-            dependencies.pendingIncomingTextVersion += 1
+-        }
+-
+-        dependencies.activeChatStore.remove(nil)
+-        router.navigate(to: .newChat)
++        guard dependencies.hasPendingSharedContent else { return }
++        dismissAllOverlays()
++        // The visible chat shell owns navigation and imports into its fresh VM.
++        // If it has not mounted yet, its onAppear picks up the persisted payload.
++        NotificationCenter.default.post(name: .openUINewChatWithFocus, object: nil)
+     }
+ 
+     // MARK: - Overlay Dismissal
+diff --git a/Open UI/Core/Services/DependencyContainer.swift b/Open UI/Core/Services/DependencyContainer.swift
+index 128273e..dc42ac8 100644
+--- a/Open UI/Core/Services/DependencyContainer.swift	
++++ b/Open UI/Core/Services/DependencyContainer.swift	
+@@ -2,6 +2,7 @@ import Foundation
+ import Observation
+ import UIKit
+ import SwiftUI
++import os.log
+ 
+ /// Protocol defining all app-level service dependencies.
+ ///
+@@ -723,28 +724,71 @@ final class AppDependencyContainer: ServiceContainer {
+     /// deleted) so callers always see inline data.
+     func processPendingSharedContent() -> SharedContent? {
+         let defaults = UserDefaults(suiteName: SharedDataService.appGroupId)
+-        guard let data = defaults?.data(forKey: "pending_shared_content"),
+-              var content = try? JSONDecoder().decode(SharedContent.self, from: data) else {
+-            return nil
+-        }
+-        // Clear pending content
+-        defaults?.removeObject(forKey: "pending_shared_content")
+-
+-        if let inbox = FileManager.default
+-            .containerURL(forSecurityApplicationGroupIdentifier: SharedDataService.appGroupId)?
+-            .appendingPathComponent("SharedInbox", isDirectory: true) {
+-            content.fileAttachments = content.fileAttachments.compactMap { file in
++        guard let data = defaults?.data(forKey: "pending_shared_content") else { return nil }
++        let logger = Logger(subsystem: "com.openui", category: "SharedContent")
++        do {
++            var content = try JSONDecoder().decode(SharedContent.self, from: data)
++            var importedFiles: [URL] = []
++            content.fileAttachments = try content.fileAttachments.map { file in
+                 guard let stored = file.storedFileName else { return file }
+-                let url = inbox.appendingPathComponent(stored)
+-                defer { try? FileManager.default.removeItem(at: url) }
+-                guard let bytes = try? Data(contentsOf: url) else { return nil }
++                guard let container = FileManager.default
++                    .containerURL(forSecurityApplicationGroupIdentifier: SharedDataService.appGroupId) else {
++                    throw CocoaError(.fileReadNoPermission)
++                }
++                let url = container.appendingPathComponent("SharedInbox", isDirectory: true)
++                    .appendingPathComponent(stored)
+                 var resolved = file
+-                resolved.data = bytes
++                resolved.data = try Data(contentsOf: url)
+                 resolved.storedFileName = nil
++                importedFiles.append(url)
+                 return resolved
+             }
++            defaults?.removeObject(forKey: "pending_shared_content")
++            for url in importedFiles {
++                do { try FileManager.default.removeItem(at: url) }
++                catch { logger.warning("Could not remove an imported share attachment: \(error.localizedDescription)") }
++            }
++            return content
++        } catch {
++            logger.error("Could not import shared content; keeping it for retry: \(error.localizedDescription)")
++            return nil
++        }
++    }
++
++    var hasPendingSharedContent: Bool {
++        UserDefaults(suiteName: SharedDataService.appGroupId)?
++            .data(forKey: "pending_shared_content") != nil
++    }
++
++    /// Called after the chat shell resets navigation, before the destination renders.
++    func importPendingSharedContentIntoNewChat() {
++        guard let content = processPendingSharedContent() else { return }
++        activeChatStore.prewarm(conversationId: nil, using: self)
++        let viewModel = activeChatStore.viewModel(for: nil)
++        viewModel.inputText = content.text ?? ""
++
++        var attachments: [ChatAttachment] = []
++        for file in content.fileAttachments {
++            if FileAttachmentService.isImageFile(name: file.name, mimeType: file.mimeType),
++               let image = FileAttachmentService.makeImageAttachment(data: file.data, name: file.name) {
++                attachments.append(image)
++            } else {
++                attachments.append(ChatAttachment(type: .file, name: file.name,
++                                                  thumbnail: nil, data: file.data))
++            }
++        }
++        for data in content.imageData {
++            if let image = FileAttachmentService.makeImageAttachment(data: data, name: "image") {
++                attachments.append(image)
++            }
++        }
++        for attachment in attachments {
++            viewModel.attachments.append(attachment)
++            viewModel.uploadAttachmentImmediately(attachmentId: attachment.id)
++        }
++        for url in content.urls {
++            viewModel.processWebURL(urlString: url)
+         }
+-        return content
+     }
+ 
+     /// Updates widget data with current conversations.
+diff --git a/Open UI/Core/Services/SharedDataService.swift b/Open UI/Core/Services/SharedDataService.swift
+index 7220421..f9aae32 100644
+--- a/Open UI/Core/Services/SharedDataService.swift	
++++ b/Open UI/Core/Services/SharedDataService.swift	
+@@ -12,7 +12,7 @@ final class SharedDataService: Sendable {
+     static let shared = SharedDataService()
+ 
+     /// The App Group identifier. Must match the entitlements configuration.
+-    static let appGroupId = "group.com.openui.openui"
++    static let appGroupId = AppGroup.identifier()
+ 
+     private let logger = Logger(subsystem: "com.openui", category: "SharedData")
+     private let defaults: UserDefaults?
+diff --git a/Open UI/Features/Chat/Views/MainChatView.swift b/Open UI/Features/Chat/Views/MainChatView.swift
+index bf6b86a..ffe5fd6 100644
+--- a/Open UI/Features/Chat/Views/MainChatView.swift	
++++ b/Open UI/Features/Chat/Views/MainChatView.swift	
+@@ -1127,6 +1127,12 @@ struct MainChatView: View {
+ 
+     private func applyLifecycleHandlers<Content: View>(content: Content) -> some View {
+         content
++            .onAppear {
++                if dependencies.hasPendingSharedContent {
++                    showNotes = false
++                    startNewChat()
++                }
++            }
+             .task {
+                 if let manager = dependencies.conversationManager {
+                     listViewModel.configure(with: manager)
+@@ -1611,6 +1617,9 @@ struct MainChatView: View {
+         // If a transcription is running on the new-chat VM, stay put regardless
+         // of whether we're already on the new-chat screen.
+         if currentNewVM.hasActiveTranscriptions {
++            if dependencies.hasPendingSharedContent {
++                print("[Share] Import deferred until the active transcription finishes.")
++            }
+             return
+         }
+ 
+@@ -1638,6 +1647,7 @@ struct MainChatView: View {
+         // Reset terminal file browser state so it starts fresh in the new chat
+         closeFileBrowserAnimated()
+         terminalBrowserVM.reset()
++        dependencies.importPendingSharedContentIntoNewChat()
+         Haptics.play(.light)
+     }
+ 
+diff --git a/Open UI/Features/Chat/Views/iPadMainChatView.swift b/Open UI/Features/Chat/Views/iPadMainChatView.swift
+index 958230e..9e9e805 100644
+--- a/Open UI/Features/Chat/Views/iPadMainChatView.swift	
++++ b/Open UI/Features/Chat/Views/iPadMainChatView.swift	
+@@ -283,6 +283,12 @@ struct iPadMainChatView: View {
+             handleTerminalFileEvent(note)
+         }
+         // Channel-specific lifecycle wiring
++        .onAppear {
++            if dependencies.hasPendingSharedContent {
++                showNotes = false
++                startNewChat()
++            }
++        }
+         .task {
+             // Configure and load channels — must pass currentUserId for DM participant filtering
+             if let apiClient = dependencies.apiClient {
+@@ -955,6 +961,9 @@ struct iPadMainChatView: View {
+         // If a transcription is running on the new-chat VM, stay put regardless
+         // of whether we're already on the new-chat screen.
+         if currentNewVM.hasActiveTranscriptions {
++            if dependencies.hasPendingSharedContent {
++                print("[Share] Import deferred until the active transcription finishes.")
++            }
+             return
+         }
+ 
+@@ -981,6 +990,7 @@ struct iPadMainChatView: View {
+         // Reset the terminal panel so the fresh chat starts clean (mirrors MainChatView).
+         withTransaction(txn) { showTerminalBrowser = false }
+         terminalBrowserVM.reset()
++        dependencies.importPendingSharedContentIntoNewChat()
+         Haptics.play(.light)
+     }
+ 
+diff --git a/Open UI/Shared/AppGroup.swift b/Open UI/Shared/AppGroup.swift
+new file mode 100644
+index 0000000..e5842fe
+--- /dev/null
++++ b/Open UI/Shared/AppGroup.swift	
+@@ -0,0 +1,21 @@
++import Foundation
++import os.log
++
++nonisolated enum AppGroup {
++    static let originalIdentifier = "group.com.openui.openui"
++
++    static func identifier(in bundle: Bundle = .main) -> String {
++        // AltStore adds the signing team suffix and records the granted groups here.
++        guard let groups = bundle.object(forInfoDictionaryKey: "ALTAppGroups") as? [String] else {
++            return originalIdentifier
++        }
++        if let identifier = groups.first(where: {
++            $0 == originalIdentifier || $0.hasPrefix(originalIdentifier + ".")
++        }) {
++            return identifier
++        }
++        Logger(subsystem: "com.openui", category: "AppGroup")
++            .error("AltStore did not provision the Open Relay App Group. Cross-process sharing is unavailable.")
++        return originalIdentifier
++    }
++}
+diff --git a/Open UI/Shared/Watch/WatchProtocol.swift b/Open UI/Shared/Watch/WatchProtocol.swift
+index 5ce3525..57df200 100644
+--- a/Open UI/Shared/Watch/WatchProtocol.swift	
++++ b/Open UI/Shared/Watch/WatchProtocol.swift	
+@@ -28,7 +28,7 @@ nonisolated enum WatchProtocol {
+     /// `userInfo` key in the Handoff activity holding the chat ID.
+     static let chatActivityIdKey = "chatId"
+     /// App group shared by the watch app and its complications/widgets.
+-    static let watchAppGroup = "group.com.openui.openui"
++    static let watchAppGroup = AppGroup.identifier()
+     /// Notification category on iPhone notifications that offers "Reply".
+     static let replyActionId = "watch.reply"
+ }
+diff --git a/Open UI/Shared/Widgets/ControlCenterIntents.swift b/Open UI/Shared/Widgets/ControlCenterIntents.swift
+index 7ef1fac..ad60d5d 100644
+--- a/Open UI/Shared/Widgets/ControlCenterIntents.swift	
++++ b/Open UI/Shared/Widgets/ControlCenterIntents.swift	
+@@ -26,7 +26,7 @@ import Foundation
+ 
+ nonisolated enum ControlCenterAction {
+     /// App Group suite shared by the app and the widget extension.
+-    static let appGroupId = "group.com.openui.openui"
++    static let appGroupId = AppGroup.identifier()
+     /// UserDefaults key holding the pending action string (e.g. "new-chat").
+     static let pendingKey = "pendingControlCenterAction"
+     /// Posted in-process after a pending action has been recorded.
+diff --git a/OpenUIShareExtension/ShareViewController.swift b/OpenUIShareExtension/ShareViewController.swift
+index f8d48e6..ff2473b 100644
+--- a/OpenUIShareExtension/ShareViewController.swift
++++ b/OpenUIShareExtension/ShareViewController.swift
+@@ -1,6 +1,7 @@
+ import UIKit
+ import UniformTypeIdentifiers
+ import MobileCoreServices
++import os.log
+ 
+ /// Share Extension view controller.
+ ///
+@@ -14,7 +15,7 @@ import MobileCoreServices
+ ///    App Group UserDefaults under the key "pending_shared_content".
+ /// 4. We open the main app via the "openui://shared-content" URL scheme.
+ /// 5. extensionContext.completeRequest() dismisses the share sheet.
+-/// 6. The main app foregrounds and reads the pending content on scenePhase == .active.
++/// 6. The chat shell imports pending content on appearance or a new-chat notification.
+ final class ShareViewController: UIViewController {
+ 
+     // MARK: - Entry Point
+@@ -38,19 +39,35 @@ final class ShareViewController: UIViewController {
+ 
+         Task {
+             var content = await Self.process(providers: providers)
++            guard content.text != nil || !content.urls.isEmpty || !content.fileAttachments.isEmpty else {
++                showFailure("No supported text, links, or files were received from the sharing app.")
++                return
++            }
++            guard FileManager.default.containerURL(
++                forSecurityApplicationGroupIdentifier: AppGroup.identifier()
++            ) != nil, let defaults = UserDefaults(suiteName: AppGroup.identifier()) else {
++                showFailure("Shared storage is unavailable. Reinstall Open Relay with its share extension and App Group enabled.")
++                return
++            }
+             // Large payloads (photos, videos, PDFs) don't belong in UserDefaults:
+             // write them to the shared App Group container and pass file paths.
+             content = Self.offloadFilesToContainer(content)
+ 
+             // Persist to the shared App Group so the main app can read it.
+-            if let defaults = UserDefaults(suiteName: "group.com.openui.openui"),
+-               let encoded = try? JSONEncoder().encode(content) {
++            do {
++                let encoded = try JSONEncoder().encode(content)
+                 defaults.set(encoded, forKey: "pending_shared_content")
+                 defaults.synchronize()
++            } catch {
++                showFailure("Could not save the shared content. Please try again.")
++                return
+             }
+ 
+             // Open the main app. openui://shared-content is handled in Open_UIApp.swift.
+-            await openMainApp()
++            guard await openMainApp() else {
++                showFailure("Could not open Open Relay. Your content is saved; open the app to import it.")
++                return
++            }
+             finish()
+         }
+     }
+@@ -59,7 +76,7 @@ final class ShareViewController: UIViewController {
+     /// the relative file name. Falls back to inline data if the container is unavailable.
+     private static func offloadFilesToContainer(_ content: SharedContent) -> SharedContent {
+         guard let container = FileManager.default
+-            .containerURL(forSecurityApplicationGroupIdentifier: "group.com.openui.openui") else { return content }
++            .containerURL(forSecurityApplicationGroupIdentifier: AppGroup.identifier()) else { return content }
+         let inbox = container.appendingPathComponent("SharedInbox", isDirectory: true)
+         try? FileManager.default.createDirectory(at: inbox, withIntermediateDirectories: true)
+         var result = content
+@@ -224,12 +241,18 @@ final class ShareViewController: UIViewController {
+     /// Loads a plain-text string from an item provider.
+     private static func loadText(from provider: NSItemProvider) async -> String? {
+         await withCheckedContinuation { continuation in
+-            provider.loadDataRepresentation(forTypeIdentifier: UTType.plainText.identifier) { data, _ in
+-                guard let data, let text = String(data: data, encoding: .utf8) else {
++            provider.loadItem(forTypeIdentifier: UTType.plainText.identifier, options: nil) { item, error in
++                if let error {
++                    Logger(subsystem: "com.openui", category: "ShareExtension")
++                        .error("Could not load shared text: \(error.localizedDescription)")
++                }
++                if let text = item as? String {
++                    continuation.resume(returning: text)
++                } else if let data = item as? Data {
++                    continuation.resume(returning: String(data: data, encoding: .utf8))
++                } else {
+                     continuation.resume(returning: nil)
+-                    return
+                 }
+-                continuation.resume(returning: text)
+             }
+         }
+     }
+@@ -241,20 +264,32 @@ final class ShareViewController: UIViewController {
+     /// Extensions cannot call UIApplication.shared directly, so we walk the
+     /// responder chain to find the UIApplication instance and open the URL on it.
+     @MainActor
+-    private func openMainApp() async {
+-        guard let url = URL(string: "openui://shared-content") else { return }
++    private func openMainApp() async -> Bool {
++        let url = URL(string: "openui://shared-content")!
+         var responder: UIResponder? = self
+         while let current = responder {
+             if let app = current as? UIApplication {
+-                app.open(url, options: [:], completionHandler: nil)
+-                return
++                return await withCheckedContinuation { continuation in
++                    app.open(url, options: [:]) { opened in
++                        continuation.resume(returning: opened)
++                    }
++                }
+             }
+             responder = current.next
+         }
++        return false
+     }
+ 
+     // MARK: - Completion
+ 
++    @MainActor
++    private func showFailure(_ message: String) {
++        Logger(subsystem: "com.openui", category: "ShareExtension").error("\(message, privacy: .public)")
++        let alert = UIAlertController(title: "Unable to Share", message: message, preferredStyle: .alert)
++        alert.addAction(UIAlertAction(title: "OK", style: .default) { [weak self] _ in self?.finish() })
++        present(alert, animated: true)
++    }
++
+     private func finish() {
+         extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
+     }

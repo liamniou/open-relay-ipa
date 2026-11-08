@@ -39,6 +39,12 @@ have that expiry. Failed Xcode builds retain their build log for seven days.
 No signing secrets, Apple ID, or paid Apple Developer membership are needed for
 the pipeline. The Apple ID is used locally by AltStore, not GitHub Actions.
 
+Packaging adds certificate-free **ad-hoc signatures** carrying only the App
+Group entitlement to the app and its extensions. This lets AltStore discover
+and provision their shared storage; the IPA is still not installable without
+AltStore signing it for your device. Paid/special upstream entitlements are
+not requested by these placeholder signatures.
+
 ## Automatic upstream updates
 
 Dependabot checks the `upstream` Git submodule **daily** and GitHub Actions
@@ -71,8 +77,7 @@ updates the source used by the build.
 ## Build patches
 
 Files in [`patches/`](patches) are applied to the upstream checkout before
-building. They only work around build failures and do not change app behavior.
-Each one fixes a "the compiler is unable to type-check this expression in
+building. The first two fix a "the compiler is unable to type-check this expression in
 reasonable time" error that occurs in Release builds on every Xcode available
 on GitHub's macOS 26 runners (26.4.1 to 26.6):
 
@@ -80,10 +85,38 @@ on GitHub's macOS 26 runners (26.4.1 to 26.6):
   Splits one ternary into two statements, which give the same result.
 - `0002-knowledge-editor-typecheck.patch`: `KnowledgeEditorView.swift`. Moves
   the folder picker's `onPick` closure body, unchanged, into a private method.
+- `0003-sideload-share-handoff.patch`: fixes sharing into a new chat.
+  Resolves AltStore's renamed App Group from `ALTAppGroups` in each installed
+  bundle, including widgets. Accepts text providers returning strings or UTF-8
+  data. The iPhone/iPad chat shell creates and populates a fresh view model
+  directly, rather than losing version-counter events before the view mounts
+  or sending text to an existing chat. Pending content survives a cold launch
+  or sign-in, and duplicate foreground/deep-link callbacks import it only once.
+  Shared URLs still use the web-context pipeline and files still upload normally;
+  sharing does not automatically send a message.
 
 If upstream already contains a patch's change, the build skips that patch and
 prints a notice. If a patch no longer applies, the build fails. Update or
 delete the patch, then rerun the build.
+
+### Checking sharing on a device
+
+Install a build containing the share fix in AltStore Classic, keeping the
+**share extension** when prompted. An existing installation may need to be
+refreshed/reinstalled so AltStore provisions the newly declared App Group.
+Do not delete the app unless you have backed up any local-only data.
+
+Check sharing selected text with the app closed, backgrounded in an existing
+chat, and already showing an unsent new-chat draft. Each share should open a
+fresh chat with the text in its composer, without sending it or modifying the
+previous chat. Repeat with multiline/Unicode text, a browser URL, a photo,
+and multiple files. Open the app normally afterward to confirm the content
+is not imported twice. If a transcription is active in the new-chat draft,
+the import remains pending; bring the app to the foreground after it finishes.
+
+CI tests App Group resolution, builds all app/extension targets, and checks
+the packaged App Group entitlements. Actual iOS share-sheet delivery still
+requires the device checks above.
 
 ## Source and licensing
 
