@@ -66,6 +66,12 @@ jobs:
         with:
           xcode-version: latest-stable
 
+      - name: Test sideloaded App Group resolution
+        run: |
+          swiftc "upstream/Open UI/Shared/AppGroup.swift" tests/AppGroupTests.swift \
+            -o "$RUNNER_TEMP/app-group-tests"
+          "$RUNNER_TEMP/app-group-tests"
+
       - name: Build for iPhone and iPad without signing
         run: |
           xcodebuild -version
@@ -107,6 +113,26 @@ jobs:
               fi
             done
           done < <(find "$RUNNER_TEMP/package/Payload" -type f -print0)
+          # Unsigned Mach-O files have no entitlements for AltStore to discover.
+          # Ad-hoc signatures carry only the App Group request, not paid capabilities.
+          packaged_app="$RUNNER_TEMP/package/Payload/Open UI.app"
+          shopt -s nullglob
+          for framework in "$packaged_app"/Frameworks/*.framework; do
+            codesign --force --sign - "$framework"
+          done
+          test -d "$packaged_app/PlugIns/OpenUIShareExtension.appex"
+          test -d "$packaged_app/PlugIns/OpenUIWidgetsExtension.appex"
+          for bundle in "$packaged_app"/PlugIns/*.appex "$packaged_app"; do
+            codesign --force --sign - --generate-entitlement-der \
+              --entitlements upstream/OpenUIShareExtension/ShareExtension.entitlements "$bundle"
+            codesign --display --entitlements :- "$bundle" > "$RUNNER_TEMP/entitlements.plist"
+            group="$(/usr/libexec/PlistBuddy -c 'Print :com.apple.security.application-groups:0' "$RUNNER_TEMP/entitlements.plist")"
+            if [[ "$group" != group.com.openui.openui ]]; then
+              echo "::error::${bundle##*/} is missing the App Group entitlement required by AltStore."
+              exit 1
+            fi
+            codesign --verify "$bundle"
+          done
           output="$GITHUB_WORKSPACE/dist/Open-Relay-${UPSTREAM_VERSION}-unsigned.ipa"
           (cd "$RUNNER_TEMP/package" && zip -qry "$output" Payload)
           unzip -tq "$output"
